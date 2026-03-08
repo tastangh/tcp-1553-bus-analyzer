@@ -25,6 +25,9 @@ public:
     void updateListLayout();
     void setStatusText(const wxString &status);
 
+    wxString getHost() const { return m_host; }
+    uint16_t getPort() const { return m_port; }
+
 private:
     void onAddFrameClicked(wxCommandEvent &event);
     void onClearFramesClicked(wxCommandEvent &event);

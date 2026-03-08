@@ -2,88 +2,148 @@
 #include "BusControllerPanel.hpp"
 #include "FrameComponent.hpp"
 #include <wx/valnum.h>
+#include <random>
+#include <iomanip>
+#include <sstream>
 
 FrameCreationFrame::FrameCreationFrame(BusControllerPanel* parent, FrameComponent* source)
-    : wxFrame(parent, wxID_ANY, source ? "Edit Frame" : "Add New Frame", wxDefaultPosition, wxSize(500, 600)),
+    : wxFrame(parent, wxID_ANY, source ? "Edit 1553 Frame" : "Create New 1553 Frame", wxDefaultPosition, wxSize(680, 520)),
       m_parentPanel(parent), m_sourceComponent(source) {
     
     auto* mainSizer = new wxBoxSizer(wxVERTICAL);
-    auto* gridSizer = new wxFlexGridSizer(2, 10, 10);
-    gridSizer->AddGrowableCol(1);
+    
+    // Preparation for ComboBoxes
+    wxArrayString rtOptions;
+    for (int i = 0; i < 32; ++i) rtOptions.Add(wxString::Format("%d", i));
+    wxArrayString wcOptions;
+    for (int i = 0; i <= 32; ++i) wcOptions.Add(wxString::Format("%d", i));
 
-    gridSizer->Add(new wxStaticText(this, wxID_ANY, "Label:"));
-    m_label = new wxTextCtrl(this, wxID_ANY, source ? source->getFrameConfig().label : "New Frame");
-    gridSizer->Add(m_label, 1, wxEXPAND);
-
-    gridSizer->Add(new wxStaticText(this, wxID_ANY, "Bus:"));
+    // Top Row: Bus, Mode, RT, SA, WC
+    auto* topSizer = new wxBoxSizer(wxHORIZONTAL);
+    
+    topSizer->Add(new wxStaticText(this, wxID_ANY, "Bus:"), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
     wxArrayString buses; buses.Add("A"); buses.Add("B");
-    m_busChoice = new wxChoice(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, buses);
+    m_busChoice = new wxChoice(this, wxID_ANY, wxDefaultPosition, wxSize(60, -1), buses);
     m_busChoice->SetSelection(source && source->getFrameConfig().bus == 'B' ? 1 : 0);
-    gridSizer->Add(m_busChoice, 0);
+    topSizer->Add(m_busChoice, 0, wxLEFT, 5);
 
-    gridSizer->Add(new wxStaticText(this, wxID_ANY, "Mode:"));
+    topSizer->Add(new wxStaticText(this, wxID_ANY, "Mode:"), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 15);
     wxArrayString modes; 
     modes.Add("BC to RT"); modes.Add("RT to BC"); modes.Add("RT to RT");
     modes.Add("Mode Code (No Data)"); modes.Add("Mode Code (With Data)");
     m_modeChoice = new wxChoice(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, modes);
     m_modeChoice->SetSelection(source ? (int)source->getFrameConfig().mode : 0);
-    gridSizer->Add(m_modeChoice, 0);
+    topSizer->Add(m_modeChoice, 0, wxLEFT, 5);
 
-    gridSizer->Add(new wxStaticText(this, wxID_ANY, "RT address:"));
-    m_rt1 = new wxSpinCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxSP_ARROW_KEYS, 0, 31, source ? source->getFrameConfig().rt : 1);
-    gridSizer->Add(m_rt1, 0);
+    topSizer->Add(new wxStaticText(this, wxID_ANY, "RT:"), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 15);
+    m_rt1 = new wxComboBox(this, wxID_ANY, source ? wxString::Format("%d", source->getFrameConfig().rt) : "1", wxDefaultPosition, wxSize(75, -1), rtOptions, wxCB_READONLY);
+    topSizer->Add(m_rt1, 0, wxLEFT, 5);
 
-    gridSizer->Add(new wxStaticText(this, wxID_ANY, "Subaddress:"));
-    m_sa1 = new wxSpinCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxSP_ARROW_KEYS, 0, 31, source ? source->getFrameConfig().sa : 1);
-    gridSizer->Add(m_sa1, 0);
+    m_sa1Label = new wxStaticText(this, wxID_ANY, "SA:");
+    topSizer->Add(m_sa1Label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 15);
+    m_sa1 = new wxComboBox(this, wxID_ANY, source ? wxString::Format("%d", source->getFrameConfig().sa) : "1", wxDefaultPosition, wxSize(75, -1), rtOptions, wxCB_READONLY);
+    topSizer->Add(m_sa1, 0, wxLEFT, 5);
 
-    gridSizer->Add(new wxStaticText(this, wxID_ANY, "Word Count:"));
-    m_wc = new wxSpinCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxSP_ARROW_KEYS, 0, 32, source ? source->getFrameConfig().wc : 1);
-    gridSizer->Add(m_wc, 0);
+    topSizer->Add(new wxStaticText(this, wxID_ANY, "WC:"), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 15);
+    m_wc = new wxComboBox(this, wxID_ANY, source ? wxString::Format("%d", source->getFrameConfig().wc) : "1", wxDefaultPosition, wxSize(75, -1), wcOptions, wxCB_READONLY);
+    topSizer->Add(m_wc, 0, wxLEFT | wxRIGHT, 5);
 
-    mainSizer->Add(gridSizer, 0, wxEXPAND | wxALL, 15);
+    mainSizer->Add(topSizer, 0, wxEXPAND | wxTOP, 15);
 
-    auto* dataLabel = new wxStaticText(this, wxID_ANY, "Data Words (Hex):");
-    mainSizer->Add(dataLabel, 0, wxLEFT | wxRIGHT | wxTOP, 15);
+    // RT-to-RT Row (Optional)
+    m_cmdWord2Sizer = new wxBoxSizer(wxHORIZONTAL);
+    m_rt2Label = new wxStaticText(this, wxID_ANY, "RT2:");
+    m_cmdWord2Sizer->Add(m_rt2Label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+    m_rt2 = new wxComboBox(this, wxID_ANY, source ? wxString::Format("%d", source->getFrameConfig().rt2) : "0", wxDefaultPosition, wxSize(75, -1), rtOptions, wxCB_READONLY);
+    m_cmdWord2Sizer->Add(m_rt2, 0, wxLEFT, 5);
 
-    auto* scrolledData = new wxScrolledWindow(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 200));
-    m_dataSizer = new wxBoxSizer(wxVERTICAL);
+    m_sa2Label = new wxStaticText(this, wxID_ANY, "SA2:");
+    m_cmdWord2Sizer->Add(m_sa2Label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 15);
+    m_sa2 = new wxComboBox(this, wxID_ANY, source ? wxString::Format("%d", source->getFrameConfig().sa2) : "0", wxDefaultPosition, wxSize(75, -1), rtOptions, wxCB_READONLY);
+    m_cmdWord2Sizer->Add(m_sa2, 0, wxLEFT, 5);
+    
+    mainSizer->Add(m_cmdWord2Sizer, 0, wxEXPAND | wxTOP, 10);
+
+    // Data Word Grid (4x8)
+    mainSizer->Add(new wxStaticText(this, wxID_ANY, "Data Words (Hex):"), 0, wxLEFT | wxTOP, 15);
+    auto* dataGridSizer = new wxGridSizer(4, 8, 8, 8);
     for (int i = 0; i < 32; ++i) {
-        auto* row = new wxBoxSizer(wxHORIZONTAL);
-        row->Add(new wxStaticText(scrolledData, wxID_ANY, wxString::Format("Word %02d: ", i + 1)), 0, wxALIGN_CENTER_VERTICAL);
-        auto* text = new wxTextCtrl(scrolledData, wxID_ANY, source ? source->getFrameConfig().data[i] : "0000");
+        auto* text = new wxTextCtrl(this, wxID_ANY, source ? source->getFrameConfig().data[i] : "0000", wxDefaultPosition, wxSize(65, -1));
+        text->SetMaxLength(4);
         m_dataFields.push_back(text);
-        row->Add(text, 1, wxEXPAND | wxLEFT, 5);
-        m_dataSizer->Add(row, 0, wxEXPAND | wxBOTTOM, 2);
+        dataGridSizer->Add(text, 0, wxEXPAND);
     }
-    scrolledData->SetSizer(m_dataSizer);
-    scrolledData->SetScrollRate(0, 20);
-    mainSizer->Add(scrolledData, 1, wxEXPAND | wxALL, 15);
+    mainSizer->Add(dataGridSizer, 0, wxEXPAND | wxALL, 15);
 
-    auto* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
-    auto* saveBtn = new wxButton(this, wxID_ANY, "Save");
-    auto* cancelBtn = new wxButton(this, wxID_ANY, "Cancel");
-    buttonSizer->Add(saveBtn, 0, wxALL, 10);
-    buttonSizer->Add(cancelBtn, 0, wxALL, 10);
-    mainSizer->Add(buttonSizer, 0, wxALIGN_RIGHT);
+    // Label Row
+    auto* labelSizer = new wxBoxSizer(wxHORIZONTAL);
+    labelSizer->Add(new wxStaticText(this, wxID_ANY, "Label:"), 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 10);
+    m_label = new wxTextCtrl(this, wxID_ANY, source ? source->getFrameConfig().label : "New Frame");
+    labelSizer->Add(m_label, 1, wxEXPAND | wxLEFT | wxRIGHT, 10);
+    mainSizer->Add(labelSizer, 0, wxEXPAND | wxTOP, 5);
 
-    SetSizer(mainSizer);
+    // Bottom Action Row
+    auto* bottomSizer = new wxBoxSizer(wxHORIZONTAL);
+    auto* randomizeBtn = new wxButton(this, wxID_ANY, "Randomize Data");
+    auto* saveBtn = new wxButton(this, wxID_OK, source ? "Save Changes" : "Add Frame");
+    auto* cancelBtn = new wxButton(this, wxID_CANCEL, "Cancel");
+    
+    bottomSizer->Add(randomizeBtn, 0, wxALL, 10);
+    bottomSizer->AddStretchSpacer();
+    bottomSizer->Add(cancelBtn, 0, wxALL, 10);
+    bottomSizer->Add(saveBtn, 0, wxALL, 10);
+    mainSizer->Add(bottomSizer, 0, wxEXPAND);
 
+    SetSizerAndFit(mainSizer);
+    
+    randomizeBtn->Bind(wxEVT_BUTTON, &FrameCreationFrame::onRandomize, this);
     saveBtn->Bind(wxEVT_BUTTON, &FrameCreationFrame::onSave, this);
     cancelBtn->Bind(wxEVT_BUTTON, &FrameCreationFrame::onCancel, this);
     m_modeChoice->Bind(wxEVT_CHOICE, &FrameCreationFrame::onModeChanged, this);
+    m_wc->Bind(wxEVT_COMBOBOX, &FrameCreationFrame::onModeChanged, this);
+    m_wc->Bind(wxEVT_TEXT, &FrameCreationFrame::onModeChanged, this);
 
+    updateControlStates();
     Centre();
+}
+
+void FrameCreationFrame::updateControlStates() {
+    BcMode mode = (BcMode)m_modeChoice->GetSelection();
+    bool isRt2Rt = (mode == BcMode::RT_TO_RT);
+    bool isMc = (mode == BcMode::MODE_CODE_NO_DATA || mode == BcMode::MODE_CODE_WITH_DATA);
+    
+    m_cmdWord2Sizer->ShowItems(isRt2Rt);
+    m_sa1Label->SetLabel(isMc ? "MC:" : "SA:");
+    m_wc->Enable(!isMc);
+
+    long wc_val = 0;
+    m_wc->GetValue().ToLong(&wc_val);
+    int wc = isMc ? 1 : (int)wc_val;
+    if (wc == 0 && !isMc) wc = 32;
+
+    bool dataVisible = (mode != BcMode::MODE_CODE_NO_DATA);
+    for (int i = 0; i < 32; ++i) {
+        m_dataFields[i]->Enable(dataVisible && (i < wc));
+    }
+    
+    GetSizer()->Layout();
+    // Don't call Fit() here as it might shrink the window too much when toggling RT2/SA2
+    this->Layout();
 }
 
 void FrameCreationFrame::onSave(wxCommandEvent& event) {
     FrameConfig cfg;
     cfg.label = m_label->GetValue().ToStdString();
+    if (cfg.label.empty()) cfg.label = "Untitled Frame";
     cfg.bus = (char)m_busChoice->GetStringSelection()[0];
     cfg.mode = (BcMode)m_modeChoice->GetSelection();
-    cfg.rt = m_rt1->GetValue();
-    cfg.sa = m_sa1->GetValue();
-    cfg.wc = m_wc->GetValue();
+    
+    long val;
+    m_rt1->GetValue().ToLong(&val); cfg.rt = (int)val;
+    m_sa1->GetValue().ToLong(&val); cfg.sa = (int)val;
+    m_rt2->GetValue().ToLong(&val); cfg.rt2 = (int)val;
+    m_sa2->GetValue().ToLong(&val); cfg.sa2 = (int)val;
+    m_wc->GetValue().ToLong(&val); cfg.wc = (int)val;
     
     for (int i = 0; i < 32; ++i) {
         cfg.data[i] = m_dataFields[i]->GetValue().ToStdString();
@@ -97,10 +157,24 @@ void FrameCreationFrame::onSave(wxCommandEvent& event) {
     Close();
 }
 
+void FrameCreationFrame::onRandomize(wxCommandEvent& event) {
+    std::random_device rd;
+    std::mt19937 eng(rd());
+    std::uniform_int_distribution<> distr(0, 0xFFFF);
+    
+    for (auto* field : m_dataFields) {
+        if (field->IsEnabled()) {
+            std::stringstream ss;
+            ss << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << distr(eng);
+            field->SetValue(ss.str());
+        }
+    }
+}
+
 void FrameCreationFrame::onCancel(wxCommandEvent& event) {
     Close();
 }
 
 void FrameCreationFrame::onModeChanged(wxCommandEvent& event) {
-    // Show/hide RT2/SA2 if RT-to-RT mode is selected (to be implemented)
+    updateControlStates();
 }

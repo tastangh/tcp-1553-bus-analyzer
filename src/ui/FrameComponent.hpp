@@ -12,6 +12,7 @@ public:
     
     bool isActive() const { return m_activeToggle->GetValue(); }
     void sendFrame();
+    void updateValues(const FrameConfig& config);
     
     const FrameConfig& getFrameConfig() const { return m_config; }
     
@@ -30,7 +31,8 @@ private:
     uint16_t m_xferId = 0, m_hdrId = 0, m_bufId = 0;
 
     wxStaticText* m_label;
-    wxStaticText* m_details;
+    wxStaticText* m_summaryText;
+    std::array<wxStaticText*, 32> m_dataLabels;
     wxToggleButton* m_activeToggle;
     wxButton* m_editButton;
     wxButton* m_deleteButton;

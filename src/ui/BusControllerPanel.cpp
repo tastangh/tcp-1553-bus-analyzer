@@ -60,7 +60,12 @@ BusControllerPanel::~BusControllerPanel() {
 void BusControllerPanel::InitializeHardware(const wxString& host, uint16_t port) {
     m_host = host;
     m_port = port;
-    setStatusText(wxString::Format("BC Panel Initialized for %s:%u. Ready.", m_host, m_port));
+    auto& bc = BusController::getInstance();
+    if (bc.initialize(host.ToStdString(), port) == 0) {
+        setStatusText(wxString::Format("BC Panel Initialized for %s:%u. Ready.", m_host, m_port));
+    } else {
+        setStatusText("BC initialization failed: " + wxString(bc.getLastError()));
+    }
 }
 
 void BusControllerPanel::setStatusText(const wxString &status) {
@@ -146,40 +151,69 @@ void BusControllerPanel::stopSendingThread() {
 }
 
 void BusControllerPanel::sendActiveFramesLoop() {
-    auto promise_ptr = std::make_shared<std::promise<std::vector<FrameComponent*>>>();
-    auto future = promise_ptr->get_future();
-    
-    wxTheApp->CallAfter([this, promise_ptr]() {
-        std::vector<FrameComponent*> activeFrames;
-        if (this) {
-            for (auto* frame : m_frameComponents) {
-                if (frame && frame->isActive()) activeFrames.push_back(frame);
+    while (m_isSending) {
+        
+        // Auto-reconnect mentality (like AIM)
+        auto& bc = BusController::getInstance();
+        if (!bc.isInitialized()) {
+             if (bc.initialize(m_host.ToStdString(), m_port) != 0) {
+                 wxTheApp->CallAfter([this, &bc] { 
+                     if(this) { 
+                         setStatusText("BC init failed: " + wxString(bc.getLastError())); 
+                         stopSendingThread(); 
+                     }
+                 });
+                 break;
+             }
+        }
+
+        // Fetch active frames dynamically inside the loop
+        auto promise_ptr = std::make_shared<std::promise<std::vector<FrameComponent*>>>();
+        auto future = promise_ptr->get_future();
+        
+        wxTheApp->CallAfter([this, promise_ptr]() {
+            std::vector<FrameComponent*> activeFrames;
+            if (this) {
+                for (auto* frame : m_frameComponents) {
+                    if (frame) activeFrames.push_back(frame);
+                }
+            }
+            promise_ptr->set_value(activeFrames);
+        });
+        
+        std::vector<FrameComponent*> frames = future.get();
+        if (frames.empty()) {
+            wxTheApp->CallAfter([this] { if(this) { setStatusText("No frames available."); stopSendingThread(); }});
+            break;
+        }
+
+        bool sentAny = false;
+        for (FrameComponent* frame : frames) {
+            if (!m_isSending) break;
+            
+            // Critical fix: Check isActive() right before sending!
+            if (frame->isActive()) {
+                frame->sendFrame();
+                sentAny = true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
         }
-        promise_ptr->set_value(activeFrames);
-    });
-    
-    std::vector<FrameComponent*> activeFrames = future.get();
-    
-    if (activeFrames.empty()) {
-        wxTheApp->CallAfter([this] { if(this) { setStatusText("No active frames to send."); stopSendingThread(); }});
-        return;
-    }
-    
-    do {
-        for (FrameComponent* frame : activeFrames) {
-            if (!m_isSending) break;
-            frame->sendFrame();
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
+        
         if (!m_isSending) break; 
 
-        if (m_isRepeatOn.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(BC_FRAME_TIME_MS));
+        if (!sentAny) {
+             wxTheApp->CallAfter([this] { if(this) { setStatusText("All frames are disabled."); } });
+             std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Prevent CPU spin loop
         }
-    } while (m_isSending && m_isRepeatOn.load());
 
-    wxTheApp->CallAfter([this] { if (m_isSending) stopSendingThread(); });
+        if (!m_isRepeatOn) {
+            break;
+        }
+    }
+    
+    wxTheApp->CallAfter([this] {
+        if(this) { stopSendingThread(); }
+    });
 }
 
 void BusControllerPanel::updateListLayout() {

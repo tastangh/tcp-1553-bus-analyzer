@@ -18,30 +18,130 @@ BusController::~BusController() {
 
 int BusController::initialize(const std::string& host, uint16_t port) {
     std::lock_guard<std::mutex> lock(m_apiMutex);
+    
+    if (m_isInitialized) return 0;
+
     m_host = host;
     m_port = port;
+
+    m_serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (m_serverFd < 0) {
+        std::cerr << "[BC] Error: Cannot create server socket." << std::endl;
+        return -1;
+    }
+
+    int opt = 1;
+    if (setsockopt(m_serverFd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        std::cerr << "[BC] Error: setsockopt failed." << std::endl;
+        close(m_serverFd);
+        m_serverFd = -1;
+        return -1;
+    }
+
+    struct sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    // We bind to INADDR_ANY to catch connections from loopback or externals
+    serverAddr.sin_addr.s_addr = INADDR_ANY; 
+    serverAddr.sin_port = htons(m_port);
+
+    if (bind(m_serverFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        if (errno == EADDRINUSE) {
+            m_lastError = "Cannot bind to port " + std::to_string(m_port) + ". QEMU is already running and using the bus.";
+        } else {
+            m_lastError = std::string("BC Server Bind Error: ") + strerror(errno);
+        }
+        std::cerr << "[BC] " << m_lastError << std::endl;
+        close(m_serverFd);
+        m_serverFd = -1;
+        return -1;
+    }
+
+    if (listen(m_serverFd, 1) < 0) {
+        m_lastError = std::string("BC Server Listen Error: ") + strerror(errno);
+        std::cerr << "[BC] " << m_lastError << std::endl;
+        close(m_serverFd);
+        m_serverFd = -1;
+        return -1;
+    }
+
+    m_lastError = "Ready";
+
+    std::cout << "[BC] TCP Server listening on port " << m_port << ". Waiting for Simulator to connect..." << std::endl;
     m_isInitialized = true;
-    std::cout << "[BC] TCP Suite initialized for " << host << ":" << port << std::endl;
+
+    // Start background thread to accept exactly one client at a time
+    m_acceptThread = std::thread(&BusController::acceptLoop, this);
+    
     return 0;
 }
 
+void BusController::acceptLoop() {
+    while (m_isInitialized && m_serverFd >= 0) {
+        struct sockaddr_in clientAddr;
+        socklen_t clientLen = sizeof(clientAddr);
+        
+        // Accept blocks until a connection comes in or the socket is closed (which interrupts it)
+        int newSocket = accept(m_serverFd, (struct sockaddr*)&clientAddr, &clientLen);
+        
+        if (!m_isInitialized) {
+            if (newSocket >= 0) close(newSocket);
+            break;
+        }
+
+        if (newSocket < 0) {
+            // Accept failed, could be due to shutdown. Just loop again and check condition.
+            continue;
+        }
+
+        // If we already have a client, we could close the old one or refuse new.
+        // Let's replace the old client to allow simulator restarts.
+        int oldClient = m_clientFd.exchange(newSocket);
+        if (oldClient >= 0) {
+            close(oldClient);
+        }
+        
+        std::cout << "[BC] Simulator connected to BusController server!" << std::endl;
+    }
+}
+
 void BusController::shutdown() {
-    std::lock_guard<std::mutex> lock(m_apiMutex);
     m_isInitialized = false;
+    
+    // Close sockets first to interrupt the accept thread
+    if (m_serverFd >= 0) {
+        // Use standard shutdown() API from <sys/socket.h> just for clarity 
+        ::shutdown(m_serverFd, SHUT_RDWR);
+        close(m_serverFd);
+        m_serverFd = -1;
+    }
+    
+    int cFd = m_clientFd.exchange(-1);
+    if (cFd >= 0) {
+        ::shutdown(cFd, SHUT_RDWR);
+        close(cFd);
+    }
+    
+    if (m_acceptThread.joinable()) {
+        m_acceptThread.join();
+    }
 }
 
 bool BusController::isInitialized() const {
-    return m_isInitialized;
+    return m_isInitialized && (m_serverFd >= 0);
 }
 
 int BusController::defineFrameResources(FrameComponent* frame) {
-    // In TCP version, we don't need to define hardware resources.
     return 0;
 }
 
 int BusController::sendAcyclicFrame(FrameComponent* frame, std::array<uint16_t, BC_MAX_DATA_WORDS>& receivedData) {
     std::lock_guard<std::mutex> lock(m_apiMutex);
-    if (!m_isInitialized) return -1;
+    
+    int currentClientFd = m_clientFd.load();
+    if (currentClientFd < 0) {
+        std::cerr << "[BC] Error: Simulator is not connected yet. Waiting for connection." << std::endl;
+        return -1;
+    }
     if (!frame) return -1;
 
     const FrameConfig& config = frame->getFrameConfig();
@@ -49,7 +149,7 @@ int BusController::sendAcyclicFrame(FrameComponent* frame, std::array<uint16_t, 
     Qemu1553Packet packet;
     packet.magic[0] = 0xAA;
     packet.magic[1] = 0x55;
-    packet.mode = (config.mode == BcMode::BC_TO_RT) ? 0x00 : 0x01;
+    packet.mode = (config.mode == BcMode::BC_TO_RT) ? 0x01 : 0x00; 
     packet.rt = config.rt;
     packet.sa = config.sa;
     packet.wc = config.wc;
@@ -69,11 +169,15 @@ int BusController::sendAcyclicFrame(FrameComponent* frame, std::array<uint16_t, 
     size_t wordsToSend = (config.wc == 0) ? 32 : config.wc;
     size_t totalSize = 6 + (wordsToSend * 2);
 
-    // Use the shared proxy from BM (which is the server)
-    if (BM::getInstance().getTcpProxy().getConnectedClientCount() > 0) {
-        BM::getInstance().getTcpProxy().transmitInjection(reinterpret_cast<uint8_t*>(&packet), totalSize);
-    } else {
-        std::cout << "[BC] Error: Not connected to Bridge" << std::endl;
+    int bytesSent = write(currentClientFd, &packet, totalSize);
+    if (bytesSent < 0) {
+        std::cerr << "[BC] Error: Failed to send data to Simulator. Simulator may have disconnected. Error: " << strerror(errno) << std::endl;
+        // Close the client so it can reconnect
+        int fdToClose = m_clientFd.exchange(-1);
+        if (fdToClose == currentClientFd) {
+            close(currentClientFd);
+        }
+        return -1;
     }
 
     return 0;
