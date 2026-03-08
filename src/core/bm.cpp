@@ -161,27 +161,46 @@ void BM::formatAndRelayTransaction(const MessageTransaction& trans, std::string&
     std::stringstream ss;
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
-    ss << std::put_time(std::localtime(&in_time_t), "%H:%M:%S") << "." 
-       << std::setfill('0') << std::setw(3) 
-       << std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000
-       << " | ";
+    uint64_t full_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+    
+    // Time format: Time: HH:MM:SS.uuuuuuus
+    ss << "Time: " << std::put_time(std::localtime(&in_time_t), "%H:%M:%S") << "." 
+       << std::setfill('0') << std::setw(6) << (full_us % 1000000) << "us\n";
 
     if (trans.cmd1_valid) {
-        ss << "Bus " << trans.bus1 << " | CMD: " << std::hex << std::setw(4) << std::setfill('0') << trans.cmd1 << " | ";
         int rt = (trans.cmd1 >> 11) & 0x1F;
         int tr = (trans.cmd1 >> 10) & 0x01;
         int sa = (trans.cmd1 >> 5) & 0x1F;
         int wc = trans.cmd1 & 0x1F;
-        ss << "RT: " << std::dec << rt << " " << (tr ? "TX" : "RX") << " SA: " << sa << " WC: " << (wc == 0 ? 32 : wc);
+        int actual_wc = (wc == 0 ? 32 : wc);
+        
+        std::string typeStr = tr ? "RT to BC" : "BC to RT";
+        
+        // Exact match to user request: Bus: A Type: RT to BC RT: 15 SA: 2 WC: 24 Header: AA 55
+        ss << "Bus: " << trans.bus1 << " Type: " << typeStr 
+           << " RT: " << std::dec << rt 
+           << " SA: " << (int)sa 
+           << " WC: " << (int)actual_wc 
+           << " Header: AA 55\n";
     }
 
     if (!trans.data_words.empty()) {
-        ss << " | DATA: ";
-        for (auto dw : trans.data_words) {
-            ss << std::hex << std::setw(4) << std::setfill('0') << dw << " ";
+        ss << "Data: ";
+        for (size_t i = 0; i < trans.data_words.size(); ++i) {
+            ss << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << trans.data_words[i];
+            
+            // Break lines every 8 words to match the UI screenshot
+            if ((i + 1) % 8 == 0) {
+                if (i + 1 < trans.data_words.size()) {
+                    ss << "\n      ";
+                }
+            } else {
+                ss << " ";
+            }
         }
+        ss << "\n";
     }
 
-    ss << "\n";
+    ss << "\n"; // Extra newline to separate from the next packet
     outString = ss.str();
 }

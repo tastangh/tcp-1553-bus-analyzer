@@ -55,8 +55,8 @@ void ProtocolParser::parseStream(const unsigned char* buffer, int length,
             trans.data_words.push_back(word);
         }
         
-        trans.stat1 = 0; // Simulated
-        trans.stat1_valid = true;
+        trans.stat1 = 0; 
+        trans.stat1_valid = false; // In this basic TCP simulation, we don't receive actual status words
 
         // Trigger callback
         if (onMessageDecoded) {
