@@ -60,7 +60,7 @@ _Note: This script will ask for your **sudo** password once to apply the necessa
 The BC panel allows you to inject 1553 frames into the simulation bus.
 
 - **TCP Server Mode**: The suite acts as a TCP server on port **5002**. When you start the BC, it waits for the **Simulator (Galacsim)** to connect.
-- **Default Frames**: At startup, common satellite frames (RT 17 Torque, RT 7 GPS, RT 15 STR, RT 16 Gyro) are automatically populated.
+- **Default Frames**: At startup, common satellite frames  are automatically populated.
 - **Modes**:
   - **BC to RT (Receive)**: BC sends data to the RT.
   - **RT to BC (Transmit)**: BC requests data from the RT. Data fields are disabled in the UI for this mode as the BC is the receiver.

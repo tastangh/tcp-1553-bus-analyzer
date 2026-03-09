@@ -241,30 +241,30 @@ void BusControllerPanel::addDefaultFrames() {
         return data;
     };
 
-    // 1. RT 17 SA 4 (BC to RT) - Torque Command (BC sends randomized command data)
+    // 1. RT 17 SA 4 (BC to RT) -  Command (BC sends randomized command data)
     FrameConfig cfg1;
-    cfg1.label = "Torque Command (17/4)";
+    cfg1.label = " Command (17/4)";
     cfg1.bus = 'A'; cfg1.mode = BcMode::BC_TO_RT; cfg1.rt = 17; cfg1.sa = 4; cfg1.wc = 32;
     cfg1.data = randomizeData();
     addFrameToList(cfg1);
 
-    // 2. RT 7 SA 1 (RT to BC) - GPS Data (BC receives data, start at 0000)
+    // 2. RT 7 SA 1 (RT to BC) -  Data (BC receives data, start at 0000)
     FrameConfig cfg2;
-    cfg2.label = "GPS Data (7/1)";
+    cfg2.label = " Data (7/1)";
     cfg2.bus = 'A'; cfg2.mode = BcMode::RT_TO_BC; cfg2.rt = 7; cfg2.sa = 1; cfg2.wc = 32;
     cfg2.data = emptyData();
     addFrameToList(cfg2);
 
-    // 3. RT 15 SA 2 (RT to BC) - STR Data
+    // 3. RT 15 SA 2 (RT to BC) -  Data
     FrameConfig cfg3;
-    cfg3.label = "STR Data (15/2)";
+    cfg3.label = " Data (15/2)";
     cfg3.bus = 'A'; cfg3.mode = BcMode::RT_TO_BC; cfg3.rt = 15; cfg3.sa = 2; cfg3.wc = 32;
     cfg3.data = emptyData();
     addFrameToList(cfg3);
 
-    // 4. RT 16 SA 2 (RT to BC) - Gyro Data
+    // 4. RT 16 SA 2 (RT to BC) -  Data
     FrameConfig cfg4;
-    cfg4.label = "Gyro Data (16/2)";
+    cfg4.label = " Data (16/2)";
     cfg4.bus = 'A'; cfg4.mode = BcMode::RT_TO_BC; cfg4.rt = 16; cfg4.sa = 2; cfg4.wc = 32;
     cfg4.data = emptyData();
     addFrameToList(cfg4);
