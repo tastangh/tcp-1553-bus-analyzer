@@ -37,6 +37,7 @@ private:
     void sendActiveFramesLoop();
     void startSendingThread();
     void stopSendingThread();
+    void addDefaultFrames();
     
     MainFrame* m_mainFrame;
     wxString m_host;

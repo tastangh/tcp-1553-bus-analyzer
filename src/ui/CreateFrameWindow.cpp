@@ -121,13 +121,23 @@ void FrameCreationFrame::updateControlStates() {
     int wc = isMc ? 1 : (int)wc_val;
     if (wc == 0 && !isMc) wc = 32;
 
-    bool dataVisible = (mode != BcMode::MODE_CODE_NO_DATA);
+    // BC sends data in 'BC to RT', 'RT to RT' (Cmd1), or 'Mode Code w/ Data'
+    // BC DOES NOT send data in 'RT to BC' (it receives it)
+    bool bcSendsData = (mode == BcMode::BC_TO_RT || mode == BcMode::RT_TO_RT || mode == BcMode::MODE_CODE_WITH_DATA);
+    
     for (int i = 0; i < 32; ++i) {
-        m_dataFields[i]->Enable(dataVisible && (i < wc));
+        m_dataFields[i]->Enable(bcSendsData && (i < wc));
+    }
+    
+    // Find and disable Randomize button if in RT to BC
+    for (auto* child : GetChildren()) {
+        auto* btn = dynamic_cast<wxButton*>(child);
+        if (btn && btn->GetLabel() == "Randomize Data") {
+            btn->Enable(bcSendsData);
+        }
     }
     
     GetSizer()->Layout();
-    // Don't call Fit() here as it might shrink the window too much when toggling RT2/SA2
     this->Layout();
 }
 

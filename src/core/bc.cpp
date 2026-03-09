@@ -149,7 +149,16 @@ int BusController::sendAcyclicFrame(FrameComponent* frame, std::array<uint16_t, 
     Qemu1553Packet packet;
     packet.magic[0] = 0xAA;
     packet.magic[1] = 0x55;
-    packet.mode = (config.mode == BcMode::BC_TO_RT) ? 0x01 : 0x00; 
+    
+    // Simulator Protocol: 0x00 = Receive (BC->RT), 0x01 = Transmit (RT->BC)
+    if (config.mode == BcMode::BC_TO_RT) {
+        packet.mode = 0x00;
+    } else if (config.mode == BcMode::RT_TO_BC) {
+        packet.mode = 0x01;
+    } else {
+        packet.mode = 0x00; // Default
+    }
+
     packet.rt = config.rt;
     packet.sa = config.sa;
     packet.wc = config.wc;
@@ -167,17 +176,37 @@ int BusController::sendAcyclicFrame(FrameComponent* frame, std::array<uint16_t, 
     }
 
     size_t wordsToSend = (config.wc == 0) ? 32 : config.wc;
-    size_t totalSize = 6 + (wordsToSend * 2);
+    // Simulator expects a full packet even for transmit commands to stay in sync.
+    // We always send the header + 64 bytes of payload (zeroed out for RT_TO_BC)
+    size_t totalSize = 6 + 64; 
 
     int bytesSent = write(currentClientFd, &packet, totalSize);
     if (bytesSent < 0) {
-        std::cerr << "[BC] Error: Failed to send data to Simulator. Simulator may have disconnected. Error: " << strerror(errno) << std::endl;
-        // Close the client so it can reconnect
+        std::cerr << "[BC] Error: Failed to send data to Simulator. Error: " << strerror(errno) << std::endl;
         int fdToClose = m_clientFd.exchange(-1);
-        if (fdToClose == currentClientFd) {
-            close(currentClientFd);
-        }
+        if (fdToClose == currentClientFd) close(currentClientFd);
         return -1;
+    }
+
+    // If it's a Transmit (RT->BC) command, wait for simulator to send data back
+    if (config.mode == BcMode::RT_TO_BC) {
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms timeout
+        setsockopt(currentClientFd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+
+        Qemu1553Packet response;
+        int bytesReceived = read(currentClientFd, &response, sizeof(response));
+        if (bytesReceived >= 6) {
+            int receivedWords = (response.wc == 0) ? 32 : response.wc;
+            for (int i = 0; i < receivedWords && i < 32; ++i) {
+                receivedData[i] = ntohs(response.dataWords[i]);
+            }
+            return 0; // Success with data
+        } else {
+            // No response or error
+            return -1;
+        }
     }
 
     return 0;

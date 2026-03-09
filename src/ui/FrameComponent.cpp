@@ -129,12 +129,15 @@ void FrameComponent::sendFrame() {
     
     // If it's a receive mode, update the UI with received data
     if (ret == 0 && (m_config.mode == BcMode::RT_TO_BC || m_config.mode == BcMode::RT_TO_RT)) {
-        for (int i = 0; i < 32; ++i) {
-            std::stringstream ss;
-            ss << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << received[i];
-            m_config.data[i] = ss.str();
-        }
-        updateValues(m_config);
+        // Use CallAfter to update UI safely on the main thread
+        wxTheApp->CallAfter([this, received]() {
+            for (int i = 0; i < 32; ++i) {
+                std::stringstream ss;
+                ss << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << received[i];
+                m_config.data[i] = ss.str();
+            }
+            updateValues(m_config);
+        });
     }
 }
 
