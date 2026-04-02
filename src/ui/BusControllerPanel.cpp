@@ -235,39 +235,26 @@ void BusControllerPanel::addDefaultFrames() {
         return data;
     };
 
-    auto emptyData = []() {
-        std::array<std::string, 32> data;
-        for (int i = 0; i < 32; ++i) data[i] = "0000";
-        return data;
+    auto addDefaultFrame = [&](const std::string& label, int rt, int sa, int wc, int tr) {
+        FrameConfig cfg;
+        cfg.label = label;
+        cfg.bus = 'A';
+        cfg.mode = (tr == 0) ? BcMode::BC_TO_RT : BcMode::RT_TO_BC;
+        cfg.rt = rt;
+        cfg.sa = sa;
+        cfg.rt2 = 0;
+        cfg.sa2 = 0;
+        cfg.wc = wc;
+        cfg.data = randomizeData();
+        addFrameToList(cfg);
     };
 
-    // 1. RT 17 SA 4 (BC to RT) -  Command (BC sends randomized command data)
-    FrameConfig cfg1;
-    cfg1.label = " Command (17/4)";
-    cfg1.bus = 'A'; cfg1.mode = BcMode::BC_TO_RT; cfg1.rt = 17; cfg1.sa = 4; cfg1.wc = 32;
-    cfg1.data = randomizeData();
-    addFrameToList(cfg1);
-
-    // 2. RT 7 SA 1 (RT to BC) -  Data (BC receives data, start at 0000)
-    FrameConfig cfg2;
-    cfg2.label = " Data (7/1)";
-    cfg2.bus = 'A'; cfg2.mode = BcMode::RT_TO_BC; cfg2.rt = 7; cfg2.sa = 1; cfg2.wc = 32;
-    cfg2.data = emptyData();
-    addFrameToList(cfg2);
-
-    // 3. RT 15 SA 2 (RT to BC) -  Data
-    FrameConfig cfg3;
-    cfg3.label = " Data (15/2)";
-    cfg3.bus = 'A'; cfg3.mode = BcMode::RT_TO_BC; cfg3.rt = 15; cfg3.sa = 2; cfg3.wc = 32;
-    cfg3.data = emptyData();
-    addFrameToList(cfg3);
-
-    // 4. RT 16 SA 2 (RT to BC) -  Data
-    FrameConfig cfg4;
-    cfg4.label = " Data (16/2)";
-    cfg4.bus = 'A'; cfg4.mode = BcMode::RT_TO_BC; cfg4.rt = 16; cfg4.sa = 2; cfg4.wc = 32;
-    cfg4.data = emptyData();
-    addFrameToList(cfg4);
+    // m1553MessageStruct.json aligned defaults
+    addDefaultFrame("SATELLITE_U.DT_TRQ_CTRL_RW (RT2/SA4)", 2, 4, 32, 0);
+    addDefaultFrame("SATELLITE_Y.DT_SENSOR_DATA.RW_DATA.RW_SPD_MEAS (RT2/SA6)", 2, 6, 32, 1);
+    addDefaultFrame("SATELLITE_Y.DT_SENSOR_DATA.GPS_DATA (RT7/SA1)", 7, 1, 32, 1);
+    addDefaultFrame("SATELLITE_Y.DT_SENSOR_DATA.STR_DATA.Q_BI (RT21/SA3)", 21, 3, 32, 1);
+    addDefaultFrame("SATELLITE_Y.DT_SENSOR_DATA.GYRO_DATA.W_B_MEAS (RT16/SA2)", 16, 2, 32, 1);
 }
 
 void BusControllerPanel::updateListLayout() {

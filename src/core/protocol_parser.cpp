@@ -3,6 +3,11 @@
 #include <cstring>
 #include <arpa/inet.h>
 
+namespace {
+constexpr size_t kFixedPayloadBytes = 64;   // 32 words
+constexpr size_t kTcp1553PacketBytes = 6 + kFixedPayloadBytes;
+}
+
 ProtocolParser::ProtocolParser() {
 }
 
@@ -24,18 +29,21 @@ void ProtocolParser::parseStream(const unsigned char* buffer, int length,
             continue;
         }
 
+        // tcp-1553 stream is fixed-size (70 bytes = 6-byte header + 64-byte payload).
+        // Do not derive packet length from WC; WC only describes meaningful words.
+        if (m_accumulator.size() < kTcp1553PacketBytes) {
+            break; // Need more bytes for a full frame
+        }
+
         uint8_t mode = m_accumulator[2];
         uint8_t rt   = m_accumulator[3];
         uint8_t sa   = m_accumulator[4];
         uint8_t wc   = m_accumulator[5];
 
-        size_t words = (wc == 0) ? 32 : wc;
-        size_t payloadSize = words * 2;
-        size_t totalPacketSize = 6 + payloadSize;
-
-        // Wait until we have the full packet
-        if (m_accumulator.size() < totalPacketSize) {
-            break; // Need more data
+        if (mode != 0x00 && mode != 0x01) {
+            Logger::warn("ProtocolParser: Invalid mode 0x" + std::string(1, "0123456789ABCDEF"[mode >> 4]) + std::string(1, "0123456789ABCDEF"[mode & 0x0F]) + ", resyncing.");
+            m_accumulator.erase(m_accumulator.begin());
+            continue;
         }
 
         // We have a full packet. Decode it.
@@ -48,7 +56,9 @@ void ProtocolParser::parseStream(const unsigned char* buffer, int length,
         trans.bus1 = 'A';
         trans.cmd1_valid = true;
 
-        // Extract Data Words (Big-Endian from galacsim)
+        // Extract meaningful data words (Big-Endian). Payload is always 64 bytes.
+        size_t words = (wc == 0) ? 32 : wc;
+        if (words > 32) words = 32;
         const uint8_t* payloadPtr = m_accumulator.data() + 6;
         for (size_t i = 0; i < words; ++i) {
             uint16_t word = (payloadPtr[i*2] << 8) | payloadPtr[i*2 + 1];
@@ -64,7 +74,7 @@ void ProtocolParser::parseStream(const unsigned char* buffer, int length,
         }
         
         // Remove processed packet
-        m_accumulator.erase(m_accumulator.begin(), m_accumulator.begin() + totalPacketSize);
+        m_accumulator.erase(m_accumulator.begin(), m_accumulator.begin() + kTcp1553PacketBytes);
     }
 }
 

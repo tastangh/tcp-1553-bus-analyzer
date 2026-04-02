@@ -1,0 +1,3 @@
+/home/mtastan/workspace/tcp-1553-bus-analyzer/build_user/CMakeFiles/tcp_1553_bus_analyzer.dir
+/home/mtastan/workspace/tcp-1553-bus-analyzer/build_user/CMakeFiles/edit_cache.dir
+/home/mtastan/workspace/tcp-1553-bus-analyzer/build_user/CMakeFiles/rebuild_cache.dir
